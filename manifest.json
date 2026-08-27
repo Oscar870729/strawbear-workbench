@@ -1,0 +1,25 @@
+{
+  "name": "草莓熊的时间管理局",
+  "short_name": "草莓熊",
+  "description": "草莓熊 × 未来时间管理局 — 个人工作台 PWA",
+  "start_url": "./workbench-mobile.html",
+  "display": "standalone",
+  "orientation": "portrait",
+  "background_color": "#fef0f5",
+  "theme_color": "#e63172",
+  "lang": "zh-CN",
+  "icons": [
+    {
+      "src": "assets/app-icon.jpg",
+      "sizes": "192x192",
+      "type": "image/jpeg",
+      "purpose": "any"
+    },
+    {
+      "src": "assets/app-icon.jpg",
+      "sizes": "512x512",
+      "type": "image/jpeg",
+      "purpose": "any maskable"
+    }
+  ]
+}
