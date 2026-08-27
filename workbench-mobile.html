@@ -479,10 +479,70 @@
   /* 空态置顶提示 — 草莓熊引导 */
   .pin-empty { border-color: rgba(230,49,114,.15); }
 
+  /* ============================================================
+     密码锁 — 草莓熊时间管理局门禁
+     ============================================================ */
+  .lock-overlay {
+    position: fixed; inset: 0; z-index: 200;
+    background: linear-gradient(160deg, #1a0610 0%, #2d0a1a 50%, #1a0610 100%);
+    display: flex; flex-direction: column; align-items: center; justify-content: center;
+    padding: 40px 28px; min-height: 100vh;
+  }
+  .lock-overlay::before {
+    content: ""; position: absolute; inset: 0; z-index: 0; pointer-events: none;
+    background-image:
+      linear-gradient(rgba(230,49,114,.06) 1px, transparent 1px),
+      linear-gradient(90deg, rgba(230,49,114,.06) 1px, transparent 1px);
+    background-size: 28px 28px; opacity: .5;
+  }
+  .lock-overlay::after {
+    content: ""; position: absolute; top: 0; left: 0; right: 0; height: 1px;
+    background: linear-gradient(90deg, transparent, rgba(230,49,114,.2), transparent);
+    animation: lockScan 12s linear infinite;
+  }
+  @keyframes lockScan { 0%{ transform:translateY(0);} 100%{ transform:translateY(100vh);} }
+  .lock-inner { position: relative; z-index: 1; width: 100%; max-width: 320px; text-align: center; }
+  .lock-bear { font-size: 56px; margin-bottom: 8px; filter: drop-shadow(0 0 16px rgba(230,49,114,.3)); }
+  .lock-title { font-size: 20px; font-weight: 800; color: #fef0f5; letter-spacing: -.02em; }
+  .lock-sub { font-size: 12px; color: rgba(254,240,245,.5); margin-top: 6px; letter-spacing: .05em; }
+  .lock-input {
+    width: 100%; margin-top: 28px; padding: 14px 16px; text-align: center;
+    background: rgba(254,240,245,.06); border: 1px solid rgba(230,49,114,.3);
+    border-radius: var(--radius-tile); color: #fef0f5; font-size: 18px; letter-spacing: .3em;
+    outline: none; transition: border-color .15s, box-shadow .15s;
+  }
+  .lock-input::placeholder { color: rgba(254,240,245,.25); letter-spacing: .1em; font-size: 14px; }
+  .lock-input:focus { border-color: var(--accent); box-shadow: 0 0 0 3px rgba(230,49,114,.15); }
+  .lock-btn {
+    width: 100%; margin-top: 14px; padding: 14px; border: none; border-radius: var(--radius-tile);
+    background: var(--accent); color: #fff; font-size: 15px; font-weight: 700; cursor: pointer;
+    transition: transform .12s, filter .15s; font-family: var(--font);
+  }
+  .lock-btn:active { transform: scale(.97); filter: brightness(1.15); }
+  .lock-err { color: #ff6b6b; font-size: 12px; margin-top: 10px; min-height: 16px; opacity: 0; transition: opacity .2s; }
+  .lock-err.show { opacity: 1; }
+  .lock-hint { margin-top: 24px; font-size: 11px; color: rgba(254,240,245,.3); }
+  .lock-hint a { color: rgba(230,49,114,.5); cursor: pointer; text-decoration: none; }
+  .lock-hint a:hover { color: rgba(230,49,114,.7); }
+
   .hidden { display: none !important; }
 </style>
 </head>
 <body>
+
+<!-- 密码锁门禁 -->
+<div class="lock-overlay" id="lockScreen">
+  <div class="lock-inner">
+    <div class="lock-bear">🍓🐻</div>
+    <div class="lock-title" id="lockTitle">草莓熊的时间管理局</div>
+    <div class="lock-sub" id="lockSub">请输入门禁密码进入</div>
+    <input type="password" class="lock-input" id="lockInput" placeholder="输入密码" autocomplete="off" />
+    <button class="lock-btn" id="lockBtn">进入</button>
+    <div class="lock-err" id="lockErr">密码错误，请重试</div>
+    <div class="lock-hint" id="lockHint">首次使用？<a id="lockSetLink">设置密码</a></div>
+  </div>
+</div>
+
 <div class="app">
   <div class="topbar">
     <button class="menu-btn" id="btn-menu"></button>
@@ -515,6 +575,127 @@
 </aside>
 
 <script>
+/* ============================================================
+   密码锁门禁 — 草莓熊时间管理局
+   ============================================================ */
+const LOCK_KEY = "strawbear-lock-pw";
+const lockEl = {
+  screen: document.getElementById("lockScreen"),
+  title: document.getElementById("lockTitle"),
+  sub: document.getElementById("lockSub"),
+  input: document.getElementById("lockInput"),
+  btn: document.getElementById("lockBtn"),
+  err: document.getElementById("lockErr"),
+  hint: document.getElementById("lockHint"),
+  setLink: document.getElementById("lockSetLink"),
+};
+let lockMode = "verify"; // verify | set | change
+
+function lockHash(s){ return btoa(unescape(encodeURIComponent(s))).split("").reverse().join(""); }
+
+function lockShowError(msg){
+  lockEl.err.textContent = msg || "密码错误，请重试";
+  lockEl.err.classList.add("show");
+  setTimeout(()=>lockEl.err.classList.remove("show"), 2000);
+}
+
+function lockEnterApp(){
+  lockEl.screen.classList.add("hidden");
+}
+
+function lockDoVerify(){
+  const pw = lockEl.input.value;
+  if(!pw){ lockShowError("请输入密码"); return; }
+  const saved = localStorage.getItem(LOCK_KEY);
+  if(lockHash(pw) === saved){ lockEnterApp(); }
+  else { lockShowError("密码错误，请重试"); lockEl.input.value=""; }
+}
+
+function lockDoSet(){
+  const pw = lockEl.input.value;
+  if(pw.length < 4){ lockShowError("密码至少 4 位"); return; }
+  localStorage.setItem(LOCK_KEY, lockHash(pw));
+  lockEl.input.value="";
+  lockEl.input.setAttribute("type","password");
+  lockMode = "verify";
+  lockEl.title.textContent = "草莓熊的时间管理局";
+  lockEl.sub.textContent = "密码已设置，请输入进入";
+  lockEl.btn.textContent = "进入";
+  lockEl.hint.innerHTML = '<a id="lockChangeLink">修改密码</a>';
+  document.getElementById("lockChangeLink").onclick = ()=>lockStartChange();
+  lockEnterApp();
+}
+
+function lockStartSet(){
+  lockMode = "set";
+  lockEl.title.textContent = "设置门禁密码";
+  lockEl.sub.textContent = "首次使用，请设置一个密码";
+  lockEl.input.value="";
+  lockEl.input.setAttribute("type","password");
+  lockEl.input.setAttribute("placeholder","设置密码（至少4位）");
+  lockEl.btn.textContent = "确认设置";
+  lockEl.hint.classList.add("hidden");
+  lockEl.input.focus();
+}
+
+function lockStartChange(){
+  lockMode = "change";
+  lockEl.title.textContent = "修改密码";
+  lockEl.sub.textContent = "请输入旧密码验证";
+  lockEl.input.value="";
+  lockEl.input.setAttribute("type","password");
+  lockEl.input.setAttribute("placeholder","旧密码");
+  lockEl.btn.textContent = "下一步";
+  lockEl.hint.classList.add("hidden");
+  lockEl.input.focus();
+}
+
+function lockDoChangeStep1(){
+  const pw = lockEl.input.value;
+  const saved = localStorage.getItem(LOCK_KEY);
+  if(lockHash(pw) !== saved){ lockShowError("旧密码错误"); lockEl.input.value=""; return; }
+  lockMode = "changeNew";
+  lockEl.sub.textContent = "请输入新密码";
+  lockEl.input.value="";
+  lockEl.input.setAttribute("placeholder","新密码（至少4位）");
+  lockEl.btn.textContent = "确认修改";
+  lockEl.input.focus();
+}
+
+function lockDoChangeStep2(){
+  const pw = lockEl.input.value;
+  if(pw.length < 4){ lockShowError("新密码至少 4 位"); return; }
+  localStorage.setItem(LOCK_KEY, lockHash(pw));
+  lockEl.input.value="";
+  lockMode = "verify";
+  lockEl.title.textContent = "草莓熊的时间管理局";
+  lockEl.sub.textContent = "密码已修改，请输入进入";
+  lockEl.btn.textContent = "进入";
+  lockEl.hint.classList.remove("hidden");
+  lockEl.hint.innerHTML = '<a id="lockChangeLink">修改密码</a>';
+  document.getElementById("lockChangeLink").onclick = ()=>lockStartChange();
+}
+
+lockEl.btn.onclick = ()=>{
+  if(lockMode==="verify") lockDoVerify();
+  else if(lockMode==="set") lockDoSet();
+  else if(lockMode==="change") lockDoChangeStep1();
+  else if(lockMode==="changeNew") lockDoChangeStep2();
+};
+lockEl.input.onkeydown = e=>{ if(e.key==="Enter") lockEl.btn.click(); };
+
+// 初始化：有密码 → 验证模式；无密码 → 设置模式
+(function initLock(){
+  const saved = localStorage.getItem(LOCK_KEY);
+  if(saved){
+    lockMode = "verify";
+    lockEl.hint.innerHTML = '<a id="lockChangeLink">修改密码</a>';
+    document.getElementById("lockChangeLink").onclick = ()=>lockStartChange();
+  } else {
+    lockStartSet();
+  }
+})();
+
 /* ============================================================
    CONFIG — 唯一需要定制的地方。
    modules 里每个模块 = 一个功能页；type 决定它长什么样、记什么字段。
