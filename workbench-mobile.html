@@ -571,6 +571,11 @@
   <div class="dsep"></div>
   <div id="drawerList"></div>
   <div class="dsep"></div>
+  <div style="padding:0 4px">
+    <label style="font-size:11px;color:var(--text-secondary);font-weight:600;letter-spacing:.05em">👤 时间旅行者代号</label>
+    <input type="text" id="userNameInput" placeholder="设置你的用户名" maxlength="20" style="width:100%;margin-top:8px;padding:12px 14px;background:var(--surface-nested);border:1px solid var(--border-input);border-radius:var(--radius-tile);color:var(--text);font-size:14px;font-family:var(--font);outline:none;transition:border-color .15s,box-shadow .15s" />
+  </div>
+  <div class="dsep"></div>
   <button id="btnClearData" style="width:100%;padding:13px;border:1px solid rgba(230,49,114,.3);border-radius:var(--radius-tile);background:rgba(230,49,114,.08);color:var(--accent);font-size:13px;font-weight:600;cursor:pointer;font-family:var(--font);">🗑 清空所有数据</button>
   <div class="dsep"></div>
   <div class="dfoot" id="drawerFoot">🍓 时间管理局 · 数据存于本机 · 每日更新</div>
@@ -874,8 +879,26 @@ $("#btnClearData").onclick = function(){
   if(!ok2) return;
   localStorage.removeItem(CONFIG.storageKey);
   localStorage.removeItem(LOCK_KEY);
+  localStorage.removeItem("strawbear-username");
   location.reload();
 };
+
+/* ---------- 用户名 ---------- */
+const UN_KEY = "strawbear-username";
+function applyUserName(){
+  const name = localStorage.getItem(UN_KEY) || "";
+  const displayName = name || "草莓熊";
+  $("#drawerName").textContent = displayName + "的时间管理局";
+  lockEl.title.textContent = displayName + "的时间管理局";
+  lockEl.sub.textContent = name ? "欢迎回来，" + name : "请输入门禁密码进入";
+  $("#userNameInput").value = name;
+}
+$("#userNameInput").addEventListener("input", function(e){
+  const v = e.target.value.trim();
+  if(v){ localStorage.setItem(UN_KEY, v); } else { localStorage.removeItem(UN_KEY); }
+  applyUserName();
+});
+applyUserName();
 
 (function(){
   const now = new Date();
