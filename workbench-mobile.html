@@ -1329,8 +1329,14 @@ function openEditor(key, item){
     else if(f.type==="number") fields+=`<div class="field"><label>${esc(f.label)}</label><input id="f-cf-${f.key}" type="number" value="${attr(v)}" placeholder="${attr(f.placeholder||'')}"/></div>`;
     else fields+=`<div class="field"><label>${esc(f.label)}</label><input id="f-cf-${f.key}" value="${attr(v)}" placeholder="${attr(f.placeholder||'')}"/></div>`;
   });
-  // shared image URL field (all types)
-  fields+=`<div class="field"><label>图片 URL（可选）</label><input id="f-image" value="${attr(d.image||'')}" placeholder="https://..."/></div>`;
+  // shared image upload field (all types)
+  fields+=`<div class="field"><label>图片（可选）</label>
+    <div id="f-image-wrap" style="display:flex;align-items:center;gap:10px;flex-wrap:wrap">
+      <div id="f-image-preview" style="display:none;width:60px;height:60px;border-radius:var(--radius-tile);background-size:cover;background-position:center;border:1px solid var(--border-input)"></div>
+      <button type="button" id="f-image-btn" style="padding:10px 16px;border:1px dashed var(--border-input);border-radius:var(--radius-tile);background:var(--surface-nested);color:var(--text-secondary);font-size:13px;cursor:pointer;font-family:var(--font)">📷 从图库/拍照上传</button>
+      <button type="button" id="f-image-del" style="display:none;padding:6px 10px;border:none;border-radius:var(--radius-tile);background:rgba(230,49,114,.1);color:var(--accent);font-size:12px;cursor:pointer;font-family:var(--font)">删除</button>
+    </div>
+    <input type="file" id="f-image-input" accept="image/*" hidden/>`;
 
   const overlay=document.createElement("div"); overlay.className="overlay";
   overlay.innerHTML=`<div class="modal"><div class="grab"></div>
@@ -1342,6 +1348,17 @@ function openEditor(key, item){
   const close=()=>overlay.remove();
   overlay.onclick=e=>{ if(e.target===overlay) close(); };
   overlay.querySelector("#m-cancel").onclick=close;
+  // image upload
+  let pendingImage = d.image || "";
+  const imgPreview=overlay.querySelector("#f-image-preview");
+  const imgBtn=overlay.querySelector("#f-image-btn");
+  const imgInput=overlay.querySelector("#f-image-input");
+  const imgDel=overlay.querySelector("#f-image-del");
+  function showImagePreview(src){ imgPreview.style.display=src?'block':'none'; imgDel.style.display=src?'inline-block':'none'; if(src) imgPreview.style.backgroundImage=`url('${src}')`; }
+  if(pendingImage) showImagePreview(pendingImage);
+  imgBtn.onclick=()=>imgInput.click();
+  imgInput.onchange=e=>{ const f=e.target.files&&e.target.files[0]; if(!f) return; const r=new FileReader(); r.onload=()=>{ pendingImage=r.result; showImagePreview(pendingImage); }; r.readAsDataURL(f); e.target.value=""; };
+  imgDel.onclick=()=>{ pendingImage=""; showImagePreview(""); };
   // segmented pickers
   overlay.querySelectorAll(".seg").forEach(seg=>seg.querySelectorAll(".opt").forEach(o=>o.onclick=()=>{
     seg.querySelectorAll(".opt").forEach(x=>x.classList.remove("on")); o.classList.add("on");
@@ -1363,7 +1380,7 @@ function openEditor(key, item){
       else d[f.key]=(val("#f-cf-"+f.key)||"").trim();
     });
     // save image
-    d.image=(val("#f-image")||"").trim();
+    d.image=pendingImage||"";
     if(!editing) (data[key]=data[key]||[]).unshift(d);
     persist(); close();
   };
