@@ -1296,11 +1296,12 @@ function openEditor(key, item){
     fields=`<div class="field"><label>打卡项</label><input id="f-title" value="${attr(d.title)}" placeholder="例如：喝够 8 杯水"/></div>
       <p class="sub" style="margin:0">🍓 保存后点击左侧方块即可充能；连续天数自动统计，每天重新计数。</p>`;
   } else if(m.type==="progress"){
-    fields=`<div class="field"><label>名称</label><input id="f-title" value="${attr(d.title)}" placeholder="书名 / 目标"/></div>
+    const isSport = m.key === "sport";
+    fields=`<div class="field"><label>${isSport?"项目":"名称"}</label><input id="f-title" value="${attr(d.title)}" placeholder="${isSport?"运动项目 / 目标":"书名 / 目标"}"/></div>
       <div class="frow"><div class="field"><label>当前</label><input id="f-cur" type="number" value="${d.current??0}"/></div>
       <div class="field"><label>目标</label><input id="f-tgt" type="number" value="${d.target??1}"/></div>
       <div class="field"><label>单位</label><input id="f-unit" value="${attr(d.unit||m.unit||'')}"/></div></div>
-      <div class="field"><label>摘录 / 想法</label><textarea id="f-note" placeholder="随手记">${esc(d.note||'')}</textarea></div>`;
+      <div class="field"><label>${isSport?"感受 / 备注":"摘录 / 想法"}</label><textarea id="f-note" placeholder="随手记">${esc(d.note||'')}</textarea></div>`;
   } else if(m.type==="finance"){
     fields=`<div class="field"><label>类型</label><div class="seg" id="f-ftype">
         <div class="opt ${d.type!=='income'?'on':''}" data-v="expense">支出</div>
@@ -1413,7 +1414,7 @@ function render(){
 
 /* ---------- drawer ---------- */
 function buildDrawer(){
-  $("#drawerName").textContent=CONFIG.owner;
+  applyUserName();
   $("#drawerSlogan").textContent=CONFIG.slogan;
   const items=[`<div class="ditem" data-go="home">${icon("home",20)}主页</div>`]
     .concat(CONFIG.modules.map(m=>`<div class="ditem" data-go="${m.key}">${icon(m.icon,20)}${m.name}</div>`))
