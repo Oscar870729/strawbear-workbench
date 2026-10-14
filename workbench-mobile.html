@@ -865,7 +865,18 @@ const store = {
 };
 let data = store.load();
 let view = "home";            // home | insight | <moduleKey>
+let moduleViewDate = isoToday();  // 当前模块查看的日期
+let insightRange = { type: "month", start: "", end: "" }; // 洞察页日期范围
 function persist(){ store.save(); render(); }
+// 判断是否为今天（只读模式判断）
+function isToday(dateStr){ return dateStr === isoToday(); }
+// 月初/月末工具
+function monthStart(d){ const dt=new Date(d); dt.setDate(1); return dt.toISOString().slice(0,10); }
+function monthEnd(d){ const dt=new Date(d); dt.setMonth(dt.getMonth()+1); dt.setDate(0); return dt.toISOString().slice(0,10); }
+function lastMonthStart(d){ const dt=new Date(d); dt.setDate(1); dt.setMonth(dt.getMonth()-1); return dt.toISOString().slice(0,10); }
+function lastMonthEnd(d){ const dt=new Date(d); dt.setDate(0); return dt.toISOString().slice(0,10); }
+function halfYearStart(d){ const dt=new Date(d); dt.setMonth(dt.getMonth()-6); return dt.toISOString().slice(0,10); }
+function inRange(dateStr, start, end){ return (!start||dateStr>=start) && (!end||dateStr<=end); }
 
 /* ---------- chrome icons ---------- */
 $("#btn-menu").innerHTML = icon("menu", 20);
@@ -1107,15 +1118,54 @@ function wireHome(){
 
 /* ---------- INSIGHT ---------- */
 function renderInsight(){
-  // 模块完成度柱状条
   const DONUT_COLORS=["var(--module-4)","var(--module-3)","var(--module-5)","var(--module-2)","var(--module-1)","var(--danger)","var(--text-tertiary)"];
+  const now = new Date();
+  // 计算日期范围
+  let start="", end="", rangeLabel="";
+  if(insightRange.type==="month"){
+    start=monthStart(now); end=monthEnd(now);
+    const y=new Date(start).getFullYear(), m=new Date(start).getMonth()+1;
+    rangeLabel=`${y}年${m}月`;
+  } else if(insightRange.type==="lastMonth"){
+    start=lastMonthStart(now); end=lastMonthEnd(now);
+    const y=new Date(start).getFullYear(), m=new Date(start).getMonth()+1;
+    rangeLabel=`${y}年${m}月`;
+  } else if(insightRange.type==="halfYear"){
+    start=halfYearStart(now); end=isoToday();
+    rangeLabel="近半年";
+  } else if(insightRange.type==="custom"){
+    start=insightRange.start||monthStart(now); end=insightRange.end||isoToday();
+    rangeLabel=`${start} ~ ${end}`;
+  }
+  // 范围过滤函数
+  const inR = d => inRange(d, start, end);
+  // 模块完成度柱状条
   const bars = CONFIG.modules.map(m=>{
     const it=data[m.key]||[]; let pct=0, label="";
-    if(m.type==="todo"){ const d=it.filter(x=>x.done).length; pct=it.length?Math.round(d/it.length*100):0; label=`${d}/${it.length}`; }
-    else if(m.type==="checkin"){ const t=today(); const d=it.filter(x=>x.log&&x.log[t]).length; pct=it.length?Math.round(d/it.length*100):0; label=`${d}/${it.length}`; }
+    if(m.type==="todo"){
+      const done=it.filter(x=>x.done).length; pct=it.length?Math.round(done/it.length*100):0; label=`${done}/${it.length}`;
+    }
+    else if(m.type==="checkin"){
+      // 计算范围内平均打卡率
+      let total=0, checked=0;
+      const d=new Date(start);
+      while(d<=new Date(end)){
+        const ds=d.toISOString().slice(0,10);
+        it.forEach(x=>{ total++; if(x.log&&x.log[ds]) checked++; });
+        d.setDate(d.getDate()+1);
+      }
+      pct = total?Math.round(checked/total*100):0;
+      label = `${pct}%`;
+    }
     else if(m.type==="progress"){ pct=avgProgress(it).value; label=`${pct}%`; }
-    else if(m.type==="finance"){ const e=it.filter(x=>x.type==="expense").reduce((s,x)=>s+ +x.amount,0); label=`¥${e}`; }
-    else { label=`${it.length} 条`; }
+    else if(m.type==="finance"){
+      const e=it.filter(x=>x.type==="expense"&&inR(x.date)).reduce((s,x)=>s+ +x.amount,0);
+      label=`¥${e}`; pct=Math.min(100, e/100); // 仅作展示用
+    }
+    else {
+      const cnt = it.filter(x=>inR(x.date)).length;
+      label=`${cnt} 条`; pct=Math.min(100, cnt*5);
+    }
     return {m, pct, label};
   });
   const barAvg = bars.length ? Math.round(bars.reduce((s,b)=>s+b.pct,0)/bars.length) : 0;
@@ -1125,10 +1175,11 @@ function renderInsight(){
     <div class="pbar"><i style="width:${Math.min(100,b.pct)}%;background:${b.m.color}"></i></div>
     <span class="bar-pct">${b.label}</span></div>`).join("");
 
-  // 支出构成 donut
-  const money = data.money||[];
+  // 支出构成 donut — 按范围过滤
+  const money = (data.money||[]).filter(x=>inR(x.date));
   const exps = money.filter(x=>x.type==="expense");
   const totalExp = exps.reduce((s,x)=>s+ +x.amount,0);
+  const totalInc = money.filter(x=>x.type==="income").reduce((s,x)=>s+ +x.amount,0);
   const cats = (modOf("money")&&modOf("money").categories)||[];
   let segs = cats.map(c=>({ cat:c, amount: exps.filter(x=>x.category===c).reduce((s,x)=>s+ +x.amount,0) }))
     .filter(s=>s.amount>0).sort((a,b)=>b.amount-a.amount);
@@ -1138,21 +1189,58 @@ function renderInsight(){
     return `<div class="legend-item"><span class="legend-dot" style="background:${s.color}"></span>
       <span class="legend-name">${esc(s.cat)}</span><span class="legend-amt">¥${s.amount}</span><span class="legend-pct">${p}%</span></div>`; }).join("");
 
+  // 日期范围选择器
+  const rangeChips = [
+    {v:"month",l:"本月"},
+    {v:"lastMonth",l:"上个月"},
+    {v:"halfYear",l:"半年"},
+    {v:"custom",l:"自定义"},
+  ];
+  const customPicker = insightRange.type==="custom" ?
+    `<div style="display:flex;gap:6px;align-items:center;margin-top:8px">
+      <input type="date" id="insight-start" value="${start}" style="flex:1;padding:6px 8px;background:var(--surface-nested);border:1px solid var(--border-input);border-radius:var(--radius-tile);color:var(--text);font-size:12px;font-family:var(--font)" />
+      <span style="color:var(--text-tertiary);font-size:12px">至</span>
+      <input type="date" id="insight-end" value="${end}" style="flex:1;padding:6px 8px;background:var(--surface-nested);border:1px solid var(--border-input);border-radius:var(--radius-tile);color:var(--text);font-size:12px;font-family:var(--font)" />
+    </div>` : "";
+
   $("#screen").innerHTML = `<div class="greet"><div><h1>时空洞察</h1><p>草莓熊的数据中枢 · 全模块进展一览</p></div></div>
+    <div class="panel" style="margin-top:16px">
+      <div class="ph">${icon("calendar",15)} 数据范围 · ${rangeLabel}</div>
+      <div class="cal-chips">${rangeChips.map(c=>`<div class="cal-chip ${insightRange.type===c.v?'on':''}" data-range="${c.v}" style="${insightRange.type===c.v?'background:var(--accent);color:#fff':'background:var(--surface-nested);color:var(--text-secondary)'}">${c.l}</div>`).join("")}</div>
+      ${customPicker}
+    </div>
     <div class="sec-title">时空完成度</div>
     <div class="panel"><div class="ph">${icon("chart",15)} 时空完成度<span class="avg">均 ${barAvg}%</span></div>
       <div class="bar-list">${barList}</div></div>
     <div class="sec-title">时空账本构成</div>
-    <div class="panel"><div class="ph">${icon("wallet",15)} 支出构成<span class="avg">合计 ¥${totalExp}</span></div>
+    <div class="panel"><div class="ph">${icon("wallet",15)} 支出构成<span class="avg">支出 ¥${totalExp} · 收入 ¥${totalInc}</span></div>
       <div class="donut-wrap"><div class="donut">${donut}${segs.length?`<span class="donut-mid">¥${totalExp}</span>`:''}</div>
         <div class="donut-legend">${legend}</div></div></div>`;
   $("#screen").querySelectorAll("[data-open]").forEach(el=>el.onclick=()=>go(el.dataset.open));
+  // 范围切换
+  $("#screen").querySelectorAll("[data-range]").forEach(el=>el.onclick=()=>{
+    insightRange.type = el.dataset.range;
+    if(insightRange.type==="custom"){
+      insightRange.start = monthStart(now);
+      insightRange.end = isoToday();
+    }
+    render();
+  });
+  const sEl=$("#insight-start"), eEl=$("#insight-end");
+  if(sEl) sEl.onchange=e=>{ insightRange.start=e.target.value; render(); };
+  if(eEl) eEl.onchange=e=>{ insightRange.end=e.target.value; render(); };
 }
 
 /* ---------- MODULE VIEW ---------- */
 function renderModule(key){
-  const m=modOf(key); const it=data[key]||[];
-  const t=today();
+  const m=modOf(key); const all=data[key]||[];
+  const t=moduleViewDate;
+  const readOnly = !isToday(t);
+  // 按日期过滤：有 date 字段的模块按日期过滤，没有的显示全部
+  let it = all;
+  if(m.type==="finance"||m.type==="note"){
+    it = all.filter(x => x.date === t);
+  }
   let head="", extra="";
   if(m.type==="finance"){
     const inc=it.filter(x=>x.type==="income").reduce((s,x)=>s+ +x.amount,0);
@@ -1163,22 +1251,27 @@ function renderModule(key){
       <div class="mini"><div class="l">结余</div><div class="v">¥${inc-exp}</div></div></div>`;
   } else if(m.type==="todo"){
     const done=it.filter(x=>x.done).length; const pct=it.length?Math.round(done/it.length*100):0;
-    head=headHero(m, `${done}/${it.length}`, "今日已完成", pct);
+    head=headHero(m, `${done}/${it.length}`, readOnly?"已完成":"今日已完成", pct);
   } else if(m.type==="checkin"){
     const done=it.filter(x=>x.log&&x.log[t]).length; const pct=it.length?Math.round(done/it.length*100):0;
-    head=headHero(m, `${done}/${it.length}`, "今日已打卡", pct);
+    head=headHero(m, `${done}/${it.length}`, readOnly?"已打卡":"今日已打卡", pct);
   } else if(m.type==="progress"){
     const p=avgProgress(it);
     head=headHero(m, `${p.value}%`, `平均进度 · ${it.length} 项`, p.value);
   } else if(m.type==="note"){
-    const todayN=it.filter(x=>x.date===t).length;
-    head=headHero(m, `${it.length}`, `条记录 · 今日 ${todayN} 条`, null);
+    head=headHero(m, `${it.length}`, `${t} 的记录`, null);
   }
-  if(m.type==="checkin") extra=renderCalendar(m,it);
-  const body = it.length ? it.map(x=>recHTML(m,x)).join("")
-    : `<div class="empty"><span class="e">${icon(m.icon,26)}</span><div>🍓 还没有记录，点上方「新建」添加第一条吧</div></div>`;
-  $("#screen").innerHTML = `<div class="greet"><div><h1>${m.name}</h1><p>${m.desc}</p></div>
-      <button class="add" id="btn-add">${icon("plus",16,2.2)}新建</button></div>
+  if(m.type==="checkin") extra=renderCalendar(m,all);
+  const body = it.length ? it.map(x=>recHTML(m,x,readOnly)).join("")
+    : `<div class="empty"><span class="e">${icon(m.icon,26)}</span><div>🍓 ${readOnly?"这一天还没有记录":"还没有记录，点上方「新建」添加第一条吧"}</div></div>`;
+  const dateBar = `<div style="display:flex;align-items:center;gap:8px;margin-top:10px;padding:6px 12px;background:rgba(255,255,255,.04);border-radius:var(--radius-tile)">
+    <span style="font-size:12px;color:var(--text-secondary)">📅 查看日期</span>
+    <input type="date" id="mod-date-picker" value="${t}" style="flex:1;background:transparent;border:none;color:var(--text);font-size:13px;font-family:var(--font);outline:none;text-align:right" />
+    ${readOnly?'<span style="font-size:10px;padding:2px 8px;background:rgba(230,49,114,.15);color:var(--accent);border-radius:999px;white-space:nowrap">只读</span>':''}
+  </div>`;
+  const addBtn = readOnly ? '' : `<button class="add" id="btn-add">${icon("plus",16,2.2)}新建</button>`;
+  $("#screen").innerHTML = `<div class="greet"><div><h1>${m.name}</h1><p>${m.desc}</p></div>${addBtn}</div>
+    ${dateBar}
     <div style="margin-top:16px">${head}${extra}
       <div class="sec-title">时空记录</div>${body}</div>`;
   wireModule(key);
@@ -1193,9 +1286,9 @@ function headHero(m, big, label, pct){
   return `<div class="hero">${inner}</div>`;
 }
 
-function recHTML(m,x){
-  const pin=`<button class="pin-btn js-pin ${x.pinned?'on':''}" data-id="${x.id}" title="置顶">${icon("star",15)}</button>`;
-  const del=`<button class="del js-del" data-id="${x.id}" title="删除">${icon("trash",16)}</button>`;
+function recHTML(m,x,readOnly){
+  const pin=readOnly?'':`<button class="pin-btn js-pin ${x.pinned?'on':''}" data-id="${x.id}" title="置顶">${icon("star",15)}</button>`;
+  const del=readOnly?'':`<button class="del js-del" data-id="${x.id}" title="删除">${icon("trash",16)}</button>`;
   const acts=`<div class="acts">${pin}${del}</div>`;
   const chkMark=icon("check",14,2.4);
   const thumb=x.image?`<img class="thumb" src="${attr(x.image)}" alt="">`:'';
@@ -1270,10 +1363,15 @@ function streak(log){
 
 function wireModule(key){
   const m=modOf(key);
+  const readOnly = !isToday(moduleViewDate);
+  // 日期选择器
+  const dp=$("#mod-date-picker");
+  if(dp) dp.onchange=e=>{ moduleViewDate = e.target.value; render(); };
+  if(readOnly) return; // 只读模式下不绑定任何编辑操作
   $("#screen").querySelectorAll(".js-chk").forEach(el=>el.onclick=e=>{
     e.stopPropagation(); const x=(data[key]).find(i=>i.id==el.dataset.id);
     if(m.type==="todo"){ x.done=!x.done; }
-    else if(m.type==="checkin"){ x.log=x.log||{}; const t=today(); x.log[t]?delete x.log[t]:x.log[t]=true; }
+    else if(m.type==="checkin"){ x.log=x.log||{}; const t=moduleViewDate; x.log[t]?delete x.log[t]:x.log[t]=true; }
     persist();
   });
   $("#screen").querySelectorAll("[data-edit]").forEach(el=>el.onclick=()=>openEditor(key,(data[key]).find(i=>i.id==el.dataset.edit)));
@@ -1317,8 +1415,8 @@ function openEditor(key, item){
       <div class="field"><label>日期</label><input id="f-date" type="date" value="${d.date||isoToday()}"/></div>`;
   }
 
-  // layout variant selector
-  const layoutOpts=[{v:'default',l:'标准'},{v:'feature',l:'大图'},{v:'quote',l:'引文'}];
+  // layout variant selector — 只保留标准和大图
+  const layoutOpts=[{v:'default',l:'标准'},{v:'feature',l:'大图'}];
   fields=`<div class="field"><label>卡片样式</label><div class="seg" id="f-layout">${layoutOpts.map(o=>`<div class="opt ${o.v===(d.layout||'default')?'on':''}" data-v="${o.v}">${o.l}</div>`).join("")}</div></div>`+fields;
 
   // custom fields (from m.fields config) — rendered after type-specific fields
@@ -1392,8 +1490,8 @@ function newItem(m){
   if(m.type==="todo") item={...base, title:"", priority:(m.priorities&&m.priorities[1]?m.priorities[1].key:"P1"), done:false, note:""};
   else if(m.type==="checkin") item={...base, title:"", log:{}};
   else if(m.type==="progress") item={...base, title:"", current:0, target: (m.unit==="页"?100:20), unit:m.unit||"", note:""};
-  else if(m.type==="finance") item={...base, title:"", type:"expense", amount:"", category:(m.categories&&m.categories[0])||"其他", date:isoToday()};
-  else item={...base, title:"", content:"", mood:(m.moods&&m.moods[0])||"", date:isoToday()};
+  else if(m.type==="finance") item={...base, title:"", type:"expense", amount:"", category:(m.categories&&m.categories[0])||"其他", date:moduleViewDate};
+  else item={...base, title:"", content:"", mood:(m.moods&&m.moods[0])||"", date:moduleViewDate};
   // initialize custom fields
   (m.fields||[]).forEach(f=>{ if(!(f.key in item)) item[f.key]= f.type==="select"?(f.options&&f.options[0]||""):""; });
   return item;
@@ -1414,7 +1512,12 @@ function confirmDelete(key,id){
 }
 
 /* ---------- router / nav ---------- */
-function go(v){ view=v; closeDrawer(); render(); window.scrollTo({top:0}); }
+function go(v){
+  view=v; closeDrawer();
+  // 切换模块时重置查看日期为今天
+  if(v!=="home" && v!=="insight") moduleViewDate = isoToday();
+  render(); window.scrollTo({top:0});
+}
 function render(){
   // top title
   if(view==="home"){ $("#topTitle").firstChild.textContent="草莓熊的时间管理局"; $("#topSub").textContent=CONFIG.slogan; }
